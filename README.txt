@@ -1,5 +1,5 @@
-# simple-gpt2
-A simple implementation of GPT-2 inference without any optimization
+# learn-ggml
+A tiny ggml implementation that only implements `add` and `dup` .
 
 ## Example
 ```
@@ -21,4 +21,3 @@ $ ctest
 
 ## Notes
 - I created this project to learn the inner workings of [ggml](https://github.com/ggerganov/ggml) .
-- There's no optimization whatsoever, even matrix calculations are implemented in simple nested loops.

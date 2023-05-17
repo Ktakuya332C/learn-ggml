@@ -6,6 +6,8 @@
 
 typedef enum sgpt_op {
   SGPT_OP_NONE = 0,
+  SGPT_OP_DUP,
+  SGPT_OP_ADD,
 } sgpt_op;
 
 typedef enum sgpt_type {
@@ -94,3 +96,10 @@ void sgpt_set_i32_2d(sgpt_tensor* tensor, int i0, int i1, int32_t value);
 void sgpt_set_i32_3d(sgpt_tensor* tensor, int i0, int i1, int i2, int32_t value);
 void sgpt_set_i32_4d(sgpt_tensor* tensor, int i0, int i1, int i2, int i3, int32_t value);
 
+sgpt_tensor* sgpt_dup(sgpt_context* ctx, sgpt_tensor* a);
+sgpt_tensor* sgpt_dup_inplace(sgpt_context* ctx, sgpt_tensor* a);
+sgpt_tensor* sgpt_add(sgpt_context* ctx, sgpt_tensor* a, sgpt_tensor* b);
+sgpt_tensor* sgpt_add_inplace(sgpt_context* ctx, sgpt_tensor* a, sgpt_tensor* b);
+
+sgpt_cgraph sgpt_build_forward(sgpt_tensor* tensor);
+void sgpt_graph_compute(sgpt_context* ctx, sgpt_cgraph* cgraph);

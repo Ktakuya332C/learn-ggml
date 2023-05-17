@@ -187,11 +187,97 @@ void test_view_tensor(void) {
   TEST_CHECK(sgpt_get_i32_1d(b, 1) == 3);
 }
 
+void test_dup(void) {
+  uint8_t mem_buffer[1024];
+  sgpt_context* ctx = sgpt_init((sgpt_init_params){
+    .mem_size = 1024,
+    .mem_buffer = (void*)mem_buffer,
+  });
+  
+  sgpt_tensor* a = sgpt_new_tensor_1d(ctx, SGPT_TYPE_I32, 2);
+  sgpt_tensor* b = sgpt_dup(ctx, a);
+  
+  sgpt_cgraph gf = sgpt_build_forward(b);
+  sgpt_set_i32_1d(a, 0, 1);
+  sgpt_set_i32_1d(a, 1, 2);
+  sgpt_graph_compute(ctx, &gf);
+  
+  TEST_CHECK(sgpt_get_i32_1d(b, 0) == 1);
+  TEST_CHECK(sgpt_get_i32_1d(b, 1) == 2); 
+}
+
+void test_dup_inplace(void) {
+  uint8_t mem_buffer[1024];
+  sgpt_context* ctx = sgpt_init((sgpt_init_params){
+    .mem_size = 1024,
+    .mem_buffer = (void*)mem_buffer,
+  });
+  
+  sgpt_tensor* a = sgpt_new_tensor_1d(ctx, SGPT_TYPE_I32, 2);
+  sgpt_tensor* b = sgpt_dup_inplace(ctx, a);
+  
+  sgpt_cgraph gf = sgpt_build_forward(b);
+  sgpt_set_i32_1d(a, 0, 1);
+  sgpt_set_i32_1d(a, 1, 2);
+  sgpt_graph_compute(ctx, &gf);
+  
+  TEST_CHECK(sgpt_get_i32_1d(b, 0) == 1);
+  TEST_CHECK(sgpt_get_i32_1d(b, 1) == 2); 
+}
+
+void test_add(void) {
+  uint8_t mem_buffer[1024];
+  sgpt_context* ctx = sgpt_init((sgpt_init_params){
+    .mem_size = 1024,
+    .mem_buffer = (void*)mem_buffer,
+  });
+  
+  sgpt_tensor* a = sgpt_new_tensor_1d(ctx, SGPT_TYPE_I32, 2);
+  sgpt_tensor* b = sgpt_new_tensor_1d(ctx, SGPT_TYPE_I32, 2);
+  sgpt_tensor* c = sgpt_add(ctx, a, b);
+  
+  sgpt_cgraph gf = sgpt_build_forward(c);
+  sgpt_set_i32_1d(a, 0, 1);
+  sgpt_set_i32_1d(a, 1, 2);
+  sgpt_set_i32_1d(b, 0, 3);
+  sgpt_set_i32_1d(b, 1, 4);
+  sgpt_graph_compute(ctx, &gf);
+  
+  TEST_CHECK(sgpt_get_i32_1d(c, 0) == 1+3);
+  TEST_CHECK(sgpt_get_i32_1d(c, 1) == 2+4); 
+}
+
+void test_add_inplace(void) {
+  uint8_t mem_buffer[1024];
+  sgpt_context* ctx = sgpt_init((sgpt_init_params){
+    .mem_size = 1024,
+    .mem_buffer = (void*)mem_buffer,
+  });
+  
+  sgpt_tensor* a = sgpt_new_tensor_1d(ctx, SGPT_TYPE_I32, 2);
+  sgpt_tensor* b = sgpt_new_tensor_1d(ctx, SGPT_TYPE_I32, 2);
+  sgpt_tensor* c = sgpt_add_inplace(ctx, a, b);
+  
+  sgpt_cgraph gf = sgpt_build_forward(c);
+  sgpt_set_i32_1d(a, 0, 1);
+  sgpt_set_i32_1d(a, 1, 2);
+  sgpt_set_i32_1d(b, 0, 3);
+  sgpt_set_i32_1d(b, 1, 4);
+  sgpt_graph_compute(ctx, &gf);
+  
+  TEST_CHECK(sgpt_get_i32_1d(c, 0) == 1+3);
+  TEST_CHECK(sgpt_get_i32_1d(c, 1) == 2+4); 
+}
+
 TEST_LIST = {
     {"init", test_init},
     {"new_tensor", test_new_tensor},
     {"set_i32", test_set_i32},
     {"dup_tensor", test_dup_tensor},
     {"view_tensor", test_view_tensor},
+    {"dup", test_dup},
+    {"dup_inplace", test_dup_inplace},
+    {"add", test_add},
+    {"add_inplace", test_add_inplace},
     {NULL, NULL},
 };
