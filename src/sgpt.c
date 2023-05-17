@@ -202,3 +202,212 @@ void sgpt_set_i32_4d(sgpt_tensor* tensor, int i0, int i1, int i2, int i3, int32_
   const int idxs[4] = { i0, i1, i2, i3 };
   return sgpt_set_i32(tensor, 4, idxs, value);
 }
+
+static sgpt_tensor* sgpt_dup_impl(sgpt_context* ctx, sgpt_tensor* a, bool inplace) {
+  sgpt_tensor* result = inplace ? sgpt_view_tensor(ctx, a) : sgpt_dup_tensor(ctx, a);
+  result->op = SGPT_OP_DUP;
+  result->src0 = a;
+  result->src1 = NULL;
+  return result;
+}
+
+sgpt_tensor* sgpt_dup(sgpt_context* ctx, sgpt_tensor* a) {
+  return sgpt_dup_impl(ctx, a, false);
+}
+
+sgpt_tensor* sgpt_dup_inplace(sgpt_context* ctx, sgpt_tensor* a) {
+  return sgpt_dup_impl(ctx, a, true);
+}
+
+static sgpt_tensor* sgpt_add_impl(sgpt_context* ctx, sgpt_tensor* a, sgpt_tensor* b, bool inplace) {
+  assert(sgpt_are_same_shape(a, b));
+  sgpt_tensor* result = inplace ? sgpt_view_tensor(ctx, a) : sgpt_dup_tensor(ctx, a);
+  result->op = SGPT_OP_ADD;
+  result->src0 = a;
+  result->src1 = b;
+  return result;
+}
+
+sgpt_tensor* sgpt_add(sgpt_context* ctx, sgpt_tensor* a, sgpt_tensor* b) {
+  return sgpt_add_impl(ctx, a, b, false);
+}
+
+sgpt_tensor* sgpt_add_inplace(sgpt_context* ctx, sgpt_tensor* a, sgpt_tensor* b) {
+  return sgpt_add_impl(ctx, a, b, true);
+}
+
+static void sgpt_visit_parents(sgpt_cgraph* cgraph, sgpt_tensor* node) {
+  for (int i=0; i<cgraph->n_nodes; i++) {
+    if (cgraph->nodes[i] == node) return;
+  }
+  for (int i=0; i<cgraph->n_leafs; i++) {
+    if (cgraph->leafs[i] == node) return;
+  }
+  if (node->src0) sgpt_visit_parents(cgraph, node->src0);
+  if (node->src1) sgpt_visit_parents(cgraph, node->src1);
+  if (node->op == SGPT_OP_NONE) {
+    assert(cgraph->n_leafs < SGPT_MAX_NODES);
+    cgraph->leafs[cgraph->n_leafs] = node;
+    cgraph->n_leafs++;
+  } else {
+    assert(cgraph->n_nodes < SGPT_MAX_NODES);
+    cgraph->nodes[cgraph->n_nodes] = node;
+    cgraph->n_nodes++;
+  }
+}
+
+sgpt_cgraph sgpt_build_forward(sgpt_tensor* tensor) {
+  sgpt_cgraph result = {
+    .n_nodes = 0,
+    .n_leafs = 0,
+    .nodes = { NULL },
+    .leafs = { NULL },
+  };
+  sgpt_visit_parents(&result, tensor);
+  if (result.n_nodes > 0) assert(result.nodes[result.n_nodes-1] == tensor);
+  return result;
+}
+
+static void sgpt_compute_forward_dup_f32(sgpt_tensor* src0, sgpt_tensor* dst) {
+  static_assert(SGPT_MAX_DIMS == 4, "SPGT_MAX_DIMS != 4");
+  assert(src0->ne[0] == dst->ne[0]);
+  assert(src0->ne[1] == dst->ne[1]);
+  assert(src0->ne[2] == dst->ne[2]);
+  assert(src0->ne[3] == dst->ne[3]);
+  for (int i3=0; i3<src0->ne[3]; i3++) {
+    size_t loc3 = src0->nb[3] * i3;
+    for (int i2=0; i2<src0->ne[2]; i2++) {
+      size_t loc2 = loc3 + src0->nb[2] * i2;
+      for (int i1=0; i1<src0->ne[1]; i1++) {
+        size_t loc1 = loc2 + src0->nb[1] * i1;
+        for (int i0=0; i0<src0->ne[0]; i0++) {
+          size_t loc0 = loc1 + src0->nb[0] * i0;
+          ((float*)(dst->data + loc0))[0] = ((float*)(src0->data + loc0))[0];
+        }
+      }
+    }
+  }
+}
+
+static void sgpt_compute_forward_dup_i32(sgpt_tensor* src0, sgpt_tensor* dst) {
+  static_assert(SGPT_MAX_DIMS == 4, "SPGT_MAX_DIMS != 4");
+  assert(src0->ne[0] == dst->ne[0]);
+  assert(src0->ne[1] == dst->ne[1]);
+  assert(src0->ne[2] == dst->ne[2]);
+  assert(src0->ne[3] == dst->ne[3]);
+  for (int i3=0; i3<src0->ne[3]; i3++) {
+    size_t loc3 = src0->nb[3] * i3;
+    for (int i2=0; i2<src0->ne[2]; i2++) {
+      size_t loc2 = loc3 + src0->nb[2] * i2;
+      for (int i1=0; i1<src0->ne[1]; i1++) {
+        size_t loc1 = loc2 + src0->nb[1] * i1;
+        for (int i0=0; i0<src0->ne[0]; i0++) {
+          size_t loc0 = loc1 + src0->nb[0] * i0;
+          ((int32_t*)(dst->data + loc0))[0] = ((int32_t*)(src0->data + loc0))[0];
+        }
+      }
+    }
+  }
+}
+
+static void sgpt_compute_forward_dup(sgpt_tensor* src0, sgpt_tensor* dst) {
+  assert(src0->type == dst->type);
+  switch (src0->type) {
+    case SGPT_TYPE_F32:
+      sgpt_compute_forward_dup_f32(src0, dst);
+      break;
+    case SGPT_TYPE_I32:
+      sgpt_compute_forward_dup_i32(src0, dst);
+      break;
+    default:
+      assert(false);
+  }
+}
+
+static void sgpt_compute_forward_add_f32(sgpt_tensor* src0, sgpt_tensor* src1, sgpt_tensor* dst) {
+  static_assert(SGPT_MAX_DIMS == 4, "SPGT_MAX_DIMS != 4");
+  assert(src0->ne[0] == dst->ne[0]);
+  assert(src0->ne[1] == dst->ne[1]);
+  assert(src0->ne[2] == dst->ne[2]);
+  assert(src0->ne[3] == dst->ne[3]);
+  assert(src1->ne[0] == dst->ne[0]);
+  assert(src1->ne[1] == dst->ne[1]);
+  assert(src1->ne[2] == dst->ne[2]);
+  assert(src1->ne[3] == dst->ne[3]);
+  for (int i3=0; i3<src0->ne[3]; i3++) {
+    size_t loc3 = src0->nb[3] * i3;
+    for (int i2=0; i2<src0->ne[2]; i2++) {
+      size_t loc2 = loc3 + src0->nb[2] * i2;
+      for (int i1=0; i1<src0->ne[1]; i1++) {
+        size_t loc1 = loc2 + src0->nb[1] * i1;
+        for (int i0=0; i0<src0->ne[0]; i0++) {
+          size_t loc0 = loc1 + src0->nb[0] * i0;
+          ((float*)(dst->data + loc0))[0] = ((float*)(src0->data + loc0))[0];
+          ((float*)(dst->data + loc0))[0] += ((float*)(src1->data + loc0))[0];
+        }
+      }
+    }
+  }
+}
+
+static void sgpt_compute_forward_add_i32(sgpt_tensor* src0, sgpt_tensor* src1, sgpt_tensor* dst) {
+  static_assert(SGPT_MAX_DIMS == 4, "SPGT_MAX_DIMS != 4");
+  assert(src0->ne[0] == dst->ne[0]);
+  assert(src0->ne[1] == dst->ne[1]);
+  assert(src0->ne[2] == dst->ne[2]);
+  assert(src0->ne[3] == dst->ne[3]);
+  assert(src1->ne[0] == dst->ne[0]);
+  assert(src1->ne[1] == dst->ne[1]);
+  assert(src1->ne[2] == dst->ne[2]);
+  assert(src1->ne[3] == dst->ne[3]);
+  for (int i3=0; i3<src0->ne[3]; i3++) {
+    size_t loc3 = src0->nb[3] * i3;
+    for (int i2=0; i2<src0->ne[2]; i2++) {
+      size_t loc2 = loc3 + src0->nb[2] * i2;
+      for (int i1=0; i1<src0->ne[1]; i1++) {
+        size_t loc1 = loc2 + src0->nb[1] * i1;
+        for (int i0=0; i0<src0->ne[0]; i0++) {
+          size_t loc0 = loc1 + src0->nb[0] * i0;
+          ((int32_t*)(dst->data + loc0))[0] = ((int32_t*)(src0->data + loc0))[0];
+          ((int32_t*)(dst->data + loc0))[0] += ((int32_t*)(src1->data + loc0))[0];
+        }
+      }
+    }
+  }
+}
+
+static void sgpt_compute_forward_add(sgpt_tensor* src0, sgpt_tensor* src1, sgpt_tensor* dst) {
+  assert(src0->type == dst->type);
+  assert(src1->type == dst->type);
+  switch (src0->type) {
+    case SGPT_TYPE_F32:
+      sgpt_compute_forward_add_f32(src0, src1, dst);
+      break;
+    case SGPT_TYPE_I32:
+      sgpt_compute_forward_add_i32(src0, src1, dst);
+      break;
+    default:
+      assert(false);
+  }
+}
+
+static void sgpt_compute_forward(sgpt_tensor* tensor) {
+  switch (tensor->op) {
+    case SGPT_OP_DUP:
+      sgpt_compute_forward_dup(tensor->src0, tensor);
+      break;
+    case SGPT_OP_ADD:
+      sgpt_compute_forward_add(tensor->src0, tensor->src1, tensor);
+      break;
+    case SGPT_OP_NONE:
+      break;
+    default:
+      assert(false);
+  }
+}
+
+void sgpt_graph_compute(sgpt_context* ctx, sgpt_cgraph* cgraph) {
+  for (int i=0; i<cgraph->n_nodes; i++) {
+    sgpt_compute_forward(cgraph->nodes[i]);
+  }
+}
